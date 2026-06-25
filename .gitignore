@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Virtual Environment
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Audio files and datasets
+ml/data/
+
+# Trained models
+ml/models/*.pkl
+
+# Attendance logs
+ml/attendance/
+
+# Environment variables
+.env
+ml/features/*.csv
