@@ -1,8 +1,11 @@
 import cv2
 import pickle
+import numpy as np
 import face_recognition
+from datetime import datetime
 
-# Load trained face data
+from backend.services.attendance_service import mark_attendance
+
 with open("ml/models/face_model.pkl", "rb") as f:
     data = pickle.load(f)
 
@@ -11,17 +14,22 @@ known_names = data["names"]
 
 camera = cv2.VideoCapture(0)
 
-# Faster camera settings
-camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+if not camera.isOpened():
+    print("Failed to open camera.")
+    exit()
 
-print("Starting Face Recognition...")
-print("Press Q to quit")
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 720)
 
 process_this_frame = True
 
 face_locations = []
 face_names = []
+
+attendance_marked = set()
+
+print("AI Attendance Verification Started")
+print("Press Q to quit")
 
 while True:
 
@@ -32,7 +40,6 @@ while True:
 
     if process_this_frame:
 
-        # Resize for faster processing
         small_frame = cv2.resize(
             frame,
             (0, 0),
@@ -40,18 +47,18 @@ while True:
             fy=0.25
         )
 
-        rgb_small = cv2.cvtColor(
+        rgb_small_frame = cv2.cvtColor(
             small_frame,
             cv2.COLOR_BGR2RGB
         )
 
         face_locations = face_recognition.face_locations(
-            rgb_small,
+            rgb_small_frame,
             model="hog"
         )
 
         face_encodings = face_recognition.face_encodings(
-            rgb_small,
+            rgb_small_frame,
             face_locations
         )
 
@@ -59,54 +66,234 @@ while True:
 
         for face_encoding in face_encodings:
 
-            matches = face_recognition.compare_faces(
-                known_encodings,
-                face_encoding,
-                tolerance=0.55
-            )
-
             name = "Unknown"
 
-            if True in matches:
-                first_match = matches.index(True)
-                name = known_names[first_match]
+            if len(known_encodings) > 0:
+
+                face_distances = face_recognition.face_distance(
+                    known_encodings,
+                    face_encoding
+                )
+
+                best_match_index = np.argmin(
+                    face_distances
+                )
+
+                best_distance = face_distances[
+                    best_match_index
+                ]
+
+                if best_distance < 0.48:
+
+                    name = known_names[
+                        best_match_index
+                    ]
+
+                    confidence = round(
+                        (1 - best_distance) * 100,
+                        2
+                    )
+
+                    if name not in attendance_marked:
+
+                        marked = mark_attendance(
+                            name=name,
+                            confidence=confidence,
+                            method="Face"
+                        )
+
+                        attendance_marked.add(name)
+
+                        if marked:
+                            print(
+                                f"[ATTENDANCE] {name} | {confidence}%"
+                            )
 
             face_names.append(name)
 
     process_this_frame = not process_this_frame
 
-    # Draw results
+    current_time = datetime.now().strftime(
+        "%H:%M:%S"
+    )
+
+    cv2.rectangle(
+        frame,
+        (20, 20),
+        (420, 130),
+        (20, 20, 20),
+        -1
+    )
+
+    cv2.rectangle(
+        frame,
+        (20, 20),
+        (420, 130),
+        (0, 255, 255),
+        2
+    )
+
+    cv2.putText(
+        frame,
+        "AI ATTENDANCE VERIFICATION",
+        (35, 55),
+        cv2.FONT_HERSHEY_DUPLEX,
+        0.75,
+        (255, 255, 255),
+        1
+    )
+
+    cv2.putText(
+        frame,
+        f"Time: {current_time}",
+        (35, 95),
+        cv2.FONT_HERSHEY_DUPLEX,
+        0.65,
+        (255, 255, 255),
+        1
+    )
+
     for (top, right, bottom, left), name in zip(
         face_locations,
         face_names
     ):
 
-        # Scale back up
         top *= 4
         right *= 4
         bottom *= 4
         left *= 4
 
-        cv2.rectangle(
+        verified = name != "Unknown"
+
+        color = (
+            (0, 255, 0)
+            if verified
+            else (0, 0, 255)
+        )
+
+        corner = 30
+
+        cv2.line(
             frame,
             (left, top),
-            (right, bottom),
-            (0, 255, 0),
+            (left + corner, top),
+            color,
             2
+        )
+
+        cv2.line(
+            frame,
+            (left, top),
+            (left, top + corner),
+            color,
+            2
+        )
+
+        cv2.line(
+            frame,
+            (right, top),
+            (right - corner, top),
+            color,
+            2
+        )
+
+        cv2.line(
+            frame,
+            (right, top),
+            (right, top + corner),
+            color,
+            2
+        )
+
+        cv2.line(
+            frame,
+            (left, bottom),
+            (left + corner, bottom),
+            color,
+            2
+        )
+
+        cv2.line(
+            frame,
+            (left, bottom),
+            (left, bottom - corner),
+            color,
+            2
+        )
+
+        cv2.line(
+            frame,
+            (right, bottom),
+            (right - corner, bottom),
+            color,
+            2
+        )
+
+        cv2.line(
+            frame,
+            (right, bottom),
+            (right, bottom - corner),
+            color,
+            2
+        )
+
+        panel_width = 260
+        panel_height = 80
+
+        panel_x1 = left
+
+        panel_y1 = top - panel_height - 10
+
+        if panel_y1 < 10:
+            panel_y1 = bottom + 10
+
+        panel_x2 = panel_x1 + panel_width
+        panel_y2 = panel_y1 + panel_height
+
+        cv2.rectangle(
+            frame,
+            (panel_x1, panel_y1),
+            (panel_x2, panel_y2),
+            (25, 25, 25),
+            -1
+        )
+
+        cv2.rectangle(
+            frame,
+            (panel_x1, panel_y1),
+            (panel_x2, panel_y2),
+            color,
+            2
+        )
+
+        status = (
+            "VERIFIED"
+            if verified
+            else "UNKNOWN"
+        )
+
+        cv2.putText(
+            frame,
+            status,
+            (panel_x1 + 12, panel_y1 + 28),
+            cv2.FONT_HERSHEY_DUPLEX,
+            0.65,
+            (255, 255, 255),
+            1
         )
 
         cv2.putText(
             frame,
             name,
-            (left, top - 10),
-            cv2.FONT_HERSHEY_SIMPLEX,
-            0.8,
-            (0, 255, 0),
-            2
+            (panel_x1 + 12, panel_y1 + 62),
+            cv2.FONT_HERSHEY_DUPLEX,
+            0.85,
+            (255, 255, 255),
+            1
         )
 
     cv2.imshow(
-        "Face Recognition",
+        "AI Attendance Verification Terminal",
         frame
     )
 
